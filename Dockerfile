@@ -1,1 +1,1 @@
-FROM gcr.io/cadvisor/cadvisor:v0.36.0
+FROM k8s.gcr.io/metrics-server/metrics-server:v0.6.1
