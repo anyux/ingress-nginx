@@ -1,1 +1,1 @@
-FROM docker.io/calico/kube-controllers:v3.24.1
+FROM gcr.io/cadvisor/cadvisor:v0.42.0
