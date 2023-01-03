@@ -1,1 +1,1 @@
-FROM  ghcr.io/aquasecurity/trivy-db:2
+FROM ghcr.io/aquasecurity/trivy-db
