@@ -1,1 +1,1 @@
-FROM ghcr.io/aquasecurity/trivy-db
+FROM kibana:7.14.0
