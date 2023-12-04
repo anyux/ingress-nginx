@@ -1,1 +1,1 @@
-FROM k8s.gcr.io/ingress-nginx/kube-webhook-certgen:v1.1.1
+FROM quay.io/prometheus-operator/prometheus-operator:v0.57.0
