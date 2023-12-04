@@ -1,1 +1,1 @@
-FROM quay.io/oauth2-proxy/oauth2-proxy:v7.1.2
+FROM quay.io/thanos/thanos:v0.24.0
