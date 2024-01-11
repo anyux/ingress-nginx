@@ -1,1 +1,1 @@
-FROM grafana/grafana:9.0.2
+FROM docker.io/elastic/filebeat:7.17.2
