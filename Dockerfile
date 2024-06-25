@@ -1,1 +1,1 @@
-FROM quay.io/coreos/etcd:v3.4.3-arm64
+FROM quay.io/coreos/etcd@sha256:45362cea2c9bbad96480e3a8d9235a13bff1b340af47fe462d40f4b4dbc01984
