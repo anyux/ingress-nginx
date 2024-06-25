@@ -1,1 +1,1 @@
-FROM coreos/etcd:v3.4.3-arm64
+FROM quay.io/coreos/etcd:v3.4
