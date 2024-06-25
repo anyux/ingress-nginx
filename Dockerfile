@@ -1,1 +1,1 @@
-FROM registry.aliyuncs.com/google_containers/coreos/etcd:v3.4.3-arm64
+FROM google-containers/cluster-proportional-autoscaler-arm64:1.8.1
