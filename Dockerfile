@@ -1,1 +1,1 @@
-FROM gcr.io/k8s-staging-sig-storage/csi-provisioner:canary
+FROM nvidia/cuda:12.2.0-base-ubuntu22.04
