@@ -115,8 +115,7 @@ RUN set -ex \
 # 创建工作目录
 WORKDIR /ansible
 
-# 拷贝自定义的 ansible 配置文件（如果有的话）
-COPY ansible.cfg /etc/ansible/ansible.cfg
+
 
 # 启动命令：运行 SSHD 前台进程
 CMD ["/usr/sbin/sshd", "-D"]
