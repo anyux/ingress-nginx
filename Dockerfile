@@ -65,7 +65,7 @@ RUN --mount=type=cache,target=/tmp/openssl-src,id=openssl-${OPENSSL_VERSION} \
     && cd openssl-${OPENSSL_VERSION} \
     && ./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl no-zlib \
     && make -j$(nproc) \
-    && make install
+    && make install \
     \
     # 3. 配置系统链接和库路径
     && mv /usr/bin/openssl /usr/bin/openssl.bak 2>/dev/null || true \
@@ -83,7 +83,7 @@ RUN set -ex \
     --mount=type=cache,target=/var/cache/yum \
     --mount=type=cache,target=/var/cache/dnf \
     && dnf install -y wget tar xz-devel gcc make zlib zlib-devel openssl-devel 
-    
+
 # 下载并解压源码（这部分通常不需要缓存，或者可以单独做下载缓存）
 RUN wget https://registry.npmmirror.com/-/binary/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz \
     && tar -xvf Python-${PYTHON_VERSION}.tar.xz
