@@ -1,55 +1,70 @@
 # syntax=docker/dockerfile:1
-# 使用 openEuler 22.03 LTS SP3 作为基础镜像
 FROM openeuler/openeuler:22.03
 
-# 维护者信息
+# 设置默认 Shell 并声明非交互模式
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Shanghai
+
+# 维护者信息 (建议替换为实际信息)
 LABEL maintainer="your_email@example.com"
 
-# 设置环境变量
-ENV TZ=Asia/Shanghai
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-
 # ------------------------------------------------------------------------------
-# 配置代理 (构建时可传入)
+# 配置代理与源 (构建时可传入)
 # ------------------------------------------------------------------------------
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
-ENV http_proxy=$HTTP_PROXY
-ENV https_proxy=$HTTPS_PROXY
+ENV http_proxy=$HTTP_PROXY \
+    https_proxy=$HTTPS_PROXY
 
-# ------------------------------------------------------------------------------
-# 第一阶段：配置系统源与编译安装 OpenSSL
-# ------------------------------------------------------------------------------
-# 将 openEuler 的 dnf 源替换为清华源
-RUN sed -i 's|repo.openeuler.org|mirrors.tuna.tsinghua.edu.cn/openeuler|g' /etc/yum.repos.d/openEuler.repo \
+# 1. 替换为清华源并生成元数据缓存
+# 利用 RUN --mount=type=cache 来缓存 dnf 的元数据，避免重复下载
+RUN --mount=type=cache,target=/var/cache/yum,id=yum-metadata \
+    sed -i 's|repo.openeuler.org|mirrors.tuna.tsinghua.edu.cn/openeuler|g' /etc/yum.repos.d/openEuler.repo \
     && dnf makecache
 
-# 配置 pip 全局使用清华源
-RUN mkdir -p /root/.pip 
+# 2. 配置 pip 源 (如果 COPY pip.conf 失败则创建默认配置)
+# 建议在构建上下文目录创建 pip.conf 文件，内容为清华源配置
+RUN mkdir -p /root/.pip
 COPY pip.conf /root/.pip/
 
-# 编译安装 OpenSSL 1.1.1w
-RUN set -ex \
-    --mount=type=cache,target=/var/cache/yum \
-    --mount=type=cache,target=/var/cache/dnf \
-    # 1. 安装编译依赖 (包含 zlib-devel, openssl-devel 等)
-    && dnf install -y gcc gcc-c++ make zlib-devel bzip2-devel \
-        readline-devel sqlite-cpp-devel wget curl git libffi-devel \
-    \
-    # 2. 下载并编译 OpenSSL 1.1.1w
-    && cd /tmp \
-    && wget https://www.openssl.org/source/openssl-1.1.1w.tar.gz \
-    && tar -zxvf openssl-1.1.1w.tar.gz \
-    && cd openssl-1.1.1w \
-    && ./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl no-zlib \
-    && make  \
+# ------------------------------------------------------------------------------
+# 第一阶段：编译安装 OpenSSL 1.1.1w
+# ------------------------------------------------------------------------------
+# 定义版本变量
+ARG OPENSSL_VERSION=1.1.1w
+
+# 安装编译依赖 (利用缓存)
+RUN --mount=type=cache,target=/var/cache/yum \
+    dnf install -y gcc gcc-c++ make zlib-devel bzip2-devel \
+        readline-devel wget curl git libffi-devel \
+        openssh-clients openssh-server sudo which \
+    && dnf clean all
+
+# 挂载源码和编译缓存
+# 只有当 /tmp/openssl-src 发生变化时，内部的命令才会重新执行
+RUN --mount=type=cache,target=/tmp/openssl-src,id=openssl-src-${OPENSSL_VERSION} \
+    cd /tmp/openssl-src \
+    # 下载源码 (如果缓存中没有)
+    && if [ ! -f "openssl-${OPENSSL_VERSION}.tar.gz" ]; then \
+        wget https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz; \
+    fi \
+    # 解压 (如果目录不存在)
+    && if [ ! -d "openssl-${OPENSSL_VERSION}" ]; then \
+        tar -zxvf openssl-${OPENSSL_VERSION}.tar.gz; \
+    fi \
+    && cd openssl-${OPENSSL_VERSION} \
+    # 配置与编译
+    # 移除了错误的 --build 参数，使用标准流程
+    && ./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl no-zlib shared \
+    && make -j$(nproc) \
     && make install \
     \
-    # 3. 配置系统链接和库路径
+    # 备份旧版本并创建软链
     && mv /usr/bin/openssl /usr/bin/openssl.bak 2>/dev/null || true \
-    && ln -s /usr/local/openssl/bin/openssl /usr/bin/openssl \
-    && echo "/usr/local/openssl/lib" >> /etc/ld.so.conf \
+    && ln -sf /usr/local/openssl/bin/openssl /usr/bin/openssl \
+    && echo "/usr/local/openssl/lib" > /etc/ld.so.conf.d/openssl-1.1.1w.conf \
     && ldconfig -v 
 
 # ------------------------------------------------------------------------------
@@ -57,59 +72,64 @@ RUN set -ex \
 # ------------------------------------------------------------------------------
 ARG PYTHON_VERSION=3.10.18
 
-RUN set -ex \
-    # 1. 安装 Python 编译依赖 (确保 zlib 和 openssl-devel 存在)
-    --mount=type=cache,target=/var/cache/yum \
-    --mount=type=cache,target=/var/cache/dnf \
-    && dnf install -y wget tar xz-devel gcc make zlib zlib-devel openssl-devel \
-    \
-    # 2. 下载、解压并编译 Python
-    && cd /tmp \
-    && wget https://registry.npmmirror.com/-/binary/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz \
-    && tar -xvf Python-${PYTHON_VERSION}.tar.xz \
-    && cd Python-${PYTHON_VERSION} \
-    \
-    # 3. 配置编译选项 (显式指定 LDFLAGS/CPPFLAGS 解决依赖查找问题)
+# 安装依赖
+RUN --mount=type=cache,target=/var/cache/yum \
+    dnf install -y wget tar xz-devel gcc make zlib-devel openssl-devel libffi-devel \
+    && dnf clean all
+
+# 下载并解压 Python 源码
+# 利用 /tmp/python-dl 缓存下载的 tar 包
+RUN --mount=type=cache,target=/tmp/python-dl,id=python-dl-${PYTHON_VERSION} \
+    cd /tmp/python-dl \
+    && if [ ! -f "Python-${PYTHON_VERSION}.tar.xz" ]; then \
+        wget https://registry.npmmirror.com/-/binary/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz; \
+    fi \
+    && tar -xvf Python-${PYTHON_VERSION}.tar.xz -C /tmp/
+
+# 编译安装 Python
+# 关键：在源码目录内创建 build 目录进行 out-of-source 构建，避免污染源码
+RUN cd /tmp/Python-${PYTHON_VERSION} \
+    && mkdir -p build \
+    && cd build \
+    # 导出依赖路径并配置
     && export LDFLAGS="-L/usr/local/openssl/lib -L/usr/lib64" \
     && export CPPFLAGS="-I/usr/local/openssl/include" \
-    && ./configure \
+    && ../configure \
         --prefix=/usr/local/python3 \
         --with-openssl=/usr/local/openssl \
         --with-system-ffi \
+        --enable-optimizations \
+    # 启用性能优化 (PGO)
+    && ../make  \
+    && ../make install \
     \
-    # 4. 编译与安装
-    && make \
-    && make install \
-    \
-    # 5. 配置环境变量和动态库缓存
-    && echo 'export PATH=/usr/local/python3/bin:$PATH' >> /etc/profile \
-    && echo '/usr/local/python3/lib' >> /etc/ld.so.conf \
-    && ldconfig \
-    && source /etc/profile
-
-# 设置默认的 Python 版本到 PATH
-ENV PATH=/usr/local/python3/bin:$PATH
-ENV LD_LIBRARY_PATH=/usr/local/openssl/lib:/usr/local/python3/lib:$LD_LIBRARY_PATH
+    # 配置环境变量
+    && echo 'export PATH=/usr/local/python3/bin:$PATH' >> /etc/profile.d/python.sh \
+    && echo '/usr/local/python3/lib' > /etc/ld.so.conf.d/python3.conf \
+    && ldconfig
 
 # ------------------------------------------------------------------------------
-# 第三阶段：安装 Ansible 及 SSH 服务
+# 第三阶段：安装 Ansible
 # ------------------------------------------------------------------------------
-RUN set -ex \
-    # 1. 一次性安装所有系统依赖
-    --mount=type=cache,target=/var/cache/yum \
-    --mount=type=cache,target=/var/cache/dnf \
-    && dnf install -y openssh-clients openssh-server sudo python3-dnf  \
-    \
-    # 3. 安装 ansible-core
+RUN --mount=type=cache,target=/var/cache/yum \
     --mount=type=cache,target=/root/.cache/pip \
-    && pip3 install ansible-core====10.3.0 \
+    # 升级 pip 并安装 Ansible
+    # 使用 python -m pip 更加健壮
+    python3 -m pip install --upgrade pip \
+    && python3 -m pip install ansible==10.3.0 \
     \
-    # 4. 验证安装
+    # 验证安装
     && ansible --version \
-    && python3 -c "import yaml; print('PyYAML C Extension (libyaml):', hasattr(yaml, 'CLoader'))" \
+    && python3 -c "import yaml; print('PyYAML C Extension (libyaml):', hasattr(yaml, 'CLoader'))"
 
+# ------------------------------------------------------------------------------
+# SSH 服务配置
+# ------------------------------------------------------------------------------
+# 生成 SSH 主机密钥 (避免首次启动慢)
+RUN ssh-keygen -A
 
+# 创建 ansible 用户 (如果需要)
+# RUN useradd -m -s /bin/bash ansible && echo "ansible:ansible" | chpasswd && usermod -aG wheel ansible
 
-
-# 启动命令：运行 SSHD 前台进程
+EXPOSE 22
 CMD ["/usr/sbin/sshd", "-D"]
