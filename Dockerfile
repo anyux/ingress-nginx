@@ -2,7 +2,7 @@
 FROM openeuler/openeuler:22.03
 
 # 维护者信息
-LABEL maintainer="your_email@example.com"
+LABEL maintainer="y1our_email@example.com"
 
 # 设置环境变量
 ENV TZ=Asia/Shanghai
